@@ -1,0 +1,649 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <script>
+      (() => {
+        let currentColor = 'white'
+
+        const isDropAllowed = ({
+          draggedPiece,
+          draggedCell,
+          dropPiece,
+          dropCell
+        }) => {
+          if (dropPiece && dropPiece.color === draggedPiece.color) {
+            return false
+          }
+          const FORWARD_SPACE = draggedPiece.color === 'black' ? 1 : -1
+          const isForwardMove = draggedCell.row === (dropCell.row + FORWARD_SPACE)
+          const isBackwardMove = draggedCell.row === (dropCell.row - FORWARD_SPACE)
+          const isTwoSpacesForwardMove = draggedCell.row === (dropCell.row + (FORWARD_SPACE * 2))
+          const isLeftMove = draggedCell.column === (dropCell.column - FORWARD_SPACE)
+          const isRightMove = draggedCell.column === (dropCell.column + FORWARD_SPACE)
+          const isDiagonalMove = isForwardMove && (isLeftMove || isRightMove)
+          const isSameColumn = draggedCell.column === dropCell.column
+          const isSameRow = draggedCell.row === dropCell.row
+          const isSingleSpaceMove = isDiagonalMove || ((isForwardMove || isBackwardMove) && isSameColumn) || ((isLeftMove || isRightMove) && isSameRow)
+          const isAtStartingPosition = draggedPiece.moved !== ''
+          
+          switch (draggedPiece.piece) {
+            case 'pawn': {
+              const hasMovedForwardOneSpace = isForwardMove && isSameColumn
+              const hasMovedForwardTwoSpaces = isTwoSpacesForwardMove && isSameColumn
+
+              if (dropPiece) {
+                return isDiagonalMove
+              } else {
+                return isAtStartingPosition ? (hasMovedForwardOneSpace || hasMovedForwardTwoSpaces) : hasMovedForwardOneSpace
+              }
+            }
+            case 'rook': {
+              return (isSameColumn && !isSameRow) || (!isSameColumn && isSameRow)
+            }
+            case 'knight': {
+
+            }
+            case 'bishop': {
+
+            }
+            case 'queen': {
+              return isSameColumn || isSameRow
+            }
+            case 'king': {
+              return isSingleSpaceMove
+            }
+          }
+        }
+
+        const getColumnNameByIndex = index => ['a','b','c','d','e','f','g','h'][index + 1]
+        
+        const updateStatus = message => {
+          const statusEl = window.document.querySelector('[role="status"]')
+          ;[...statusEl.children].forEach(el => el.remove())
+          const spanEl = window.document.createElement('span')
+          spanEl.innerHTML = message
+          statusEl.append(spanEl)
+        }
+
+        const domContentLoaded = new Promise(resolve => {
+          window.document.addEventListener('DOMContentLoaded', () => {
+            resolve()
+          })
+        })
+
+        domContentLoaded.then(() => {
+          const gridEl = window.document.querySelector('[role="grid"]')
+          const columnEls = [...gridEl.querySelectorAll('[role="columnheader"]')]
+
+          let draggedEl = null
+          let draggedCellEl = null
+          let draggedOverCellEl = null
+          let dragDropContext = null
+
+          ;[...gridEl.querySelectorAll('[data-piece]')].forEach(pieceEl => {
+            pieceEl.addEventListener('dragstart', e => {
+              if (pieceEl.getAttribute('data-color') !== currentColor) {
+                e.preventDefault()
+                return false
+              }
+              gridEl.setAttribute('data-has-drag', '')
+              draggedEl = pieceEl
+              draggedCellEl = pieceEl.parentElement
+              draggedEl.setAttribute('data-dragging', '')
+              e.dataTransfer.effectAllowed = 'move'
+              e.dataTransfer.setData('text/html', pieceEl.innerHTML)
+            }, false)
+            pieceEl.addEventListener('dragover', e => {
+              e.preventDefault()
+              return false
+            }, false)
+            pieceEl.addEventListener('dragend', () => {
+              gridEl.removeAttribute('data-has-drag')
+              draggedEl.removeAttribute('data-dragging')
+              draggedEl = null
+              draggedCellEl = null
+              draggedOverCellEl = null
+              dragDropContext = null
+              
+              ;[...gridEl.querySelectorAll('[data-drag-over]')].forEach(el => {
+                el.removeAttribute('data-drag-over')
+              })
+              ;[...gridEl.querySelectorAll('[data-drop-allowed]')].forEach(el => {
+                el.removeAttribute('data-drop-allowed')
+              })
+            }, false)
+          })
+          ;[...gridEl.querySelectorAll('[role="cell"]')].forEach(cellEl => {
+            cellEl.addEventListener('dragover', e => {
+              e.preventDefault()
+              return false
+            }, false)
+            cellEl.addEventListener('drop', () => {
+              if (cellEl.hasAttribute('data-drop-allowed')) {
+                const draggedOverEl = cellEl.querySelector('[data-piece]')
+                if (draggedOverEl) {
+                  window.document.querySelector(`[data-bank] ul[data-color="${dragDropContext.draggedPiece.color}"]`).append(draggedOverEl)
+                }
+                draggedEl.setAttribute('data-moved', '')
+                cellEl.append(draggedEl)
+                cellEl.removeAttribute('data-drag-over')
+                cellEl.removeAttribute('data-drop-allowed')
+                currentColor = currentColor === 'white' ? 'black' : 'white'
+                updateStatus(`
+                  ${currentColor}'s turn (last move:
+                    ${getColumnNameByIndex(dragDropContext.draggedCell.column)}:${dragDropContext.draggedCell.row}
+                    ->
+                    ${getColumnNameByIndex(dragDropContext.dropCell.column)}:${dragDropContext.dropCell.row}${
+                      ''
+                    })
+                `)
+              }
+            }, false)
+            cellEl.addEventListener('dragenter', () => {
+              draggedOverCellEl = cellEl
+              cellEl.setAttribute('data-drag-over', '')
+              dragDropContext = {
+                draggedCell: Object.fromEntries(Object.entries({
+                  ...columnEls[[...draggedCellEl.parentElement.children].indexOf(draggedCellEl)].dataset,
+                  ...draggedCellEl.closest('[data-row]').dataset
+                }).map(([key, value]) => [
+                  key,
+                  parseInt(value, 10)
+                ])),
+                dropCell: Object.fromEntries(Object.entries({
+                  ...columnEls[[...cellEl.parentElement.children].indexOf(cellEl)].dataset,
+                  ...cellEl.closest('[data-row]').dataset
+                }).map(([key, value]) => [
+                  key,
+                  parseInt(value, 10)
+                ])),
+                dropPiece: cellEl.querySelector('[data-piece]') ? {
+                  ...cellEl.querySelector('[data-piece]').dataset
+                } : null,
+                draggedPiece: {
+                  ...draggedEl.dataset
+                }
+              }
+              if (isDropAllowed(dragDropContext)) {
+                cellEl.setAttribute('data-drop-allowed', '')
+              }
+            }, false)
+            cellEl.addEventListener('dragleave', () => {
+              cellEl.removeAttribute('data-drag-over')
+              cellEl.removeAttribute('data-drop-allowed')
+            }, false)
+          })
+        })
+      })()
+    </script>
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+        border: 0;
+        border-radius: 0;
+      }
+      html,
+      body {
+        display: flex;
+        overflow: hidden;
+        height: 100%;
+        width: 100%;
+      }
+      main {
+        display: grid;
+        height: 100%;
+        width: 100%;
+        grid-auto-flow: column;
+        grid-template-columns: 1fr calc((1/9) * 100%);
+        grid-template-rows: max-content 1fr max-content;
+      }
+      header {
+        grid-column: 1 / -1;
+        grid-row: 1 / 2;
+        background: #90ddff;
+        padding: 4px;
+        font-size: large;
+      }
+      [role="status"] {
+        grid-column: 1 / -1;
+        padding: 4px;
+        font-size: large;
+        background: #ffdd90;
+      }
+      [data-bank] {
+        flex-basis: calc((1/9) * 100%);
+        display: grid;
+        grid-template-rows: 50% 50%;
+        grid-column: 2 / 3;
+        grid-row: 2 / 3;
+      }
+      [data-bank] ul[data-color="black"] {
+        background: white;
+      }
+      [data-bank] ul[data-color="black"] {
+        background: black;
+      }
+      [role="grid"] {
+        -webkit-user-select: none;
+        -webkit-touch-callout: none;
+        user-select: none;
+        display: grid;
+        height: 100%;
+        width: 100%;
+        grid-template-columns:
+          [a] 1fr
+          [b] 1fr
+          [c] 1fr
+          [d] 1fr
+          [e] 1fr
+          [f] 1fr
+          [g] 1fr
+          [h] 1fr;
+        grid-template-rows:
+          [eight] 1fr
+          [seven] 1fr
+          [six] 1fr
+          [five] 1fr
+          [four] 1fr
+          [three] 1fr
+          [two] 1fr
+          [one] 1fr;
+      }
+      [role="row"] {
+        display: contents;
+      }
+      [role="row"]:nth-child(even) [role="cell"]:nth-child(odd) {
+        background: gray;
+      }
+      [role="row"]:nth-child(odd) [role="cell"]:nth-child(even) {
+        background: gray;
+      }
+      [role="row"]:nth-child(even) [role="cell"]:nth-child(even)[data-drag-over] {
+        background: lightyellow;
+      }
+      [role="row"]:nth-child(even) [role="cell"]:nth-child(odd)[data-drag-over] {
+        background: lightyellow;
+      }
+      [role="row"]:nth-child(odd) [role="cell"]:nth-child(odd)[data-drag-over] {
+        background: lightyellow;
+      }
+      [role="row"]:nth-child(odd) [role="cell"]:nth-child(even)[data-drag-over] {
+        background: lightyellow;
+      }
+      [role="row"]:nth-child(even) [role="cell"]:nth-child(even)[data-drag-over][data-drop-allowed] {
+        background: lightgreen;
+      }
+      [role="row"]:nth-child(even) [role="cell"]:nth-child(odd)[data-drag-over][data-drop-allowed] {
+        background: lightgreen;
+      }
+      [role="row"]:nth-child(odd) [role="cell"]:nth-child(odd)[data-drag-over][data-drop-allowed] {
+        background: lightgreen;
+      }
+      [role="row"]:nth-child(odd) [role="cell"]:nth-child(even)[data-drag-over][data-drop-allowed] {
+        background: lightgreen;
+      }
+      [role="rowheader"],
+      [role="columnheader"],
+      .visually-hidden {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        white-space: nowrap;
+        visibility: hidden;
+        clip: rect(0 0 0 0);
+        margin: -1px;
+        border: 0;
+        padding: 0;
+      }
+      [role="cell"] {
+        display: grid;
+        align-items: center;
+        justify-content: center;
+      }
+      button {
+        appearance: none;
+        -webkit-appearance: none;
+        font: inherit;
+        line-height: inherit;
+      }
+      button[data-piece] {
+        padding: 2px;
+        border: 2px solid;
+        cursor: move;
+      }
+      [data-has-drag] button[data-piece] {
+        pointer-events: none;
+      }
+      button[data-piece][data-dragging] {
+        pointer-events: auto;
+        background: white;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        play chess!
+      </header>
+      <div role="grid">
+        <div role="row" data-row="header">
+          <div role="columnheader">
+            rows
+          </div>
+          <div role="columnheader" data-column="1">
+            a
+          </div>
+          <div role="columnheader" data-column="2">
+            b
+          </div>
+          <div role="columnheader" data-column="3">
+            c
+          </div>
+          <div role="columnheader" data-column="4">
+            d
+          </div>
+          <div role="columnheader" data-column="5">
+            e
+          </div>
+          <div role="columnheader" data-column="6">
+            f
+          </div>
+          <div role="columnheader" data-column="7">
+            g
+          </div>
+          <div role="columnheader" data-column="8">
+            h
+          </div>
+        </div>
+        <div role="row" data-row="8">
+          <div role="rowheader">
+            8
+          </div>
+          <div role="cell">
+            <button type="button" draggable="true" data-color="black" data-piece="rook">
+              <img src="rook_black.svg" alt="Black Rook" draggable="false" />
+            </button>
+          </div>
+          <div role="cell">
+            <button type="button" draggable="true" data-color="black" data-piece="knight">
+              <img src="knight_black.svg" alt="Black Knight" draggable="false" />
+            </button>
+          </div>
+          <div role="cell">
+            <button type="button" draggable="true" data-color="black" data-piece="bishop">
+              <img src="bishop_black.svg" alt="Black Bishop" draggable="false" />
+            </button>
+          </div>
+          <div role="cell">
+            <button type="button" draggable="true" data-color="black" data-piece="queen">
+              <img src="queen_black.svg" alt="Black Queen" draggable="false" />
+            </button>
+          </div>
+          <div role="cell">
+            <button type="button" draggable="true" data-color="black" data-piece="king">
+              <img src="king_black.svg" alt="Black King" draggable="false" />
+            </button>
+          </div>
+          <div role="cell">
+            <button type="button" draggable="true" data-color="black" data-piece="bishop">
+              <img src="bishop_black.svg" alt="Black Bishop" draggable="false" />
+            </button>
+          </div>
+          <div role="cell">
+            <button type="button" draggable="true" data-color="black" data-piece="knight">
+              <img src="knight_black.svg" alt="Black Knight" draggable="false" />
+            </button>
+          </div>
+          <div role="cell">
+            <button type="button" draggable="true" data-color="black" data-piece="rook">
+              <img src="rook_black.svg" alt="Black Rook" draggable="false" />
+            </button>
+          </div>
+        </div>
+        
+        <div role="row" data-row="7">
+          <div role="rowheader">
+            7
+          </div>
+          <div role="cell">
+            <button type="button" draggable="true" data-color="black" data-piece="pawn">
+              <img src="pawn_black.svg" alt="Black Pawn" draggable="false" />
+            </button>
+          </div>
+          <div role="cell">
+            <button type="button" draggable="true" data-color="black" data-piece="pawn">
+              <img src="pawn_black.svg" alt="Black Pawn" draggable="false" />
+            </button>
+          </div>
+          <div role="cell">
+            <button type="button" draggable="true" data-color="black" data-piece="pawn">
+              <img src="pawn_black.svg" alt="Black Pawn" draggable="false" />
+            </button>
+          </div>
+          <div role="cell">
+            <button type="button" draggable="true" data-color="black" data-piece="pawn">
+              <img src="pawn_black.svg" alt="Black Pawn" draggable="false" />
+            </button>
+          </div>
+          <div role="cell">
+            <button type="button" draggable="true" data-color="black" data-piece="pawn">
+              <img src="pawn_black.svg" alt="Black Pawn" draggable="false" />
+            </button>
+          </div>
+          <div role="cell">
+            <button type="button" draggable="true" data-color="black" data-piece="pawn">
+              <img src="pawn_black.svg" alt="Black Pawn" draggable="false" />
+            </button>
+          </div>
+          <div role="cell">
+            <button type="button" draggable="true" data-color="black" data-piece="pawn">
+              <img src="pawn_black.svg" alt="Black Pawn" draggable="false" />
+            </button>
+          </div>
+          <div role="cell">
+            <button type="button" draggable="true" data-color="black" data-piece="pawn">
+              <img src="pawn_black.svg" alt="Black Pawn" draggable="false" />
+            </button>
+          </div>
+        </div>
+        
+
+
+
+
+
+        <div role="row" data-row="6">
+          <div role="rowheader">
+            6
+          </div>
+          <div role="cell">
+          </div>
+          <div role="cell">
+          </div>
+          <div role="cell">
+          </div>
+          <div role="cell">
+          </div>
+          <div role="cell">
+          </div>
+          <div role="cell">
+          </div>
+          <div role="cell">
+          </div>
+          <div role="cell">
+          </div>
+        </div><div role="row" data-row="5">
+          <div role="rowheader">
+            5
+          </div>
+          <div role="cell">
+          </div>
+          <div role="cell">
+          </div>
+          <div role="cell">
+          </div>
+          <div role="cell">
+          </div>
+          <div role="cell">
+          </div>
+          <div role="cell">
+          </div>
+          <div role="cell">
+          </div>
+          <div role="cell">
+          </div>
+        </div>
+        <div role="row" data-row="4">
+          <div role="rowheader">
+            4
+          </div>
+          <div role="cell">
+          </div>
+          <div role="cell">
+          </div>
+          <div role="cell">
+          </div>
+          <div role="cell">
+          </div>
+          <div role="cell">
+          </div>
+          <div role="cell">
+          </div>
+          <div role="cell">
+          </div>
+          <div role="cell">
+          </div>
+        </div>
+        <div role="row" data-row="3">
+          <div role="rowheader">
+            3
+          </div>
+          <div role="cell">
+          </div>
+          <div role="cell">
+          </div>
+          <div role="cell">
+          </div>
+          <div role="cell">
+          </div>
+          <div role="cell">
+          </div>
+          <div role="cell">
+          </div>
+          <div role="cell">
+          </div>
+          <div role="cell">
+          </div>
+        </div>
+
+
+
+
+        <div role="row" data-row="2">
+          <div role="rowheader">
+            2
+          </div>
+          <div role="cell">
+            <button type="button" draggable="true" data-color="white" data-piece="pawn">
+              <img src="pawn_white.svg" alt="White Pawn" draggable="false" />
+            </button>
+          </div>
+          <div role="cell">
+            <button type="button" draggable="true" data-color="white" data-piece="pawn">
+              <img src="pawn_white.svg" alt="White Pawn" draggable="false" />
+            </button>
+          </div>
+          <div role="cell">
+            <button type="button" draggable="true" data-color="white" data-piece="pawn">
+              <img src="pawn_white.svg" alt="White Pawn" draggable="false" />
+            </button>
+          </div>
+          <div role="cell">
+            <button type="button" draggable="true" data-color="white" data-piece="pawn">
+              <img src="pawn_white.svg" alt="White Pawn" draggable="false" />
+            </button>
+          </div>
+          <div role="cell">
+            <button type="button" draggable="true" data-color="white" data-piece="pawn">
+              <img src="pawn_white.svg" alt="White Pawn" draggable="false" />
+            </button>
+          </div>
+          <div role="cell">
+            <button type="button" draggable="true" data-color="white" data-piece="pawn">
+              <img src="pawn_white.svg" alt="White Pawn" draggable="false" />
+            </button>
+          </div>
+          <div role="cell">
+            <button type="button" draggable="true" data-color="white" data-piece="pawn">
+              <img src="pawn_white.svg" alt="White Pawn" draggable="false" />
+            </button>
+          </div>
+          <div role="cell">
+            <button type="button" draggable="true" data-color="white" data-piece="pawn">
+              <img src="pawn_white.svg" alt="White Pawn" draggable="false" />
+            </button>
+          </div>
+        </div>
+        
+        <div role="row" data-row="1">
+          <div role="rowheader">
+            1
+          </div>
+          <div role="cell">
+            <button type="button" draggable="true" data-color="white" data-piece="rook">
+              <img src="rook_white.svg" alt="White Rook" draggable="false" />
+            </button>
+          </div>
+          <div role="cell">
+            <button type="button" draggable="true" data-color="white" data-piece="knight">
+              <img src="knight_white.svg" alt="White Knight" draggable="false" />
+            </button>
+          </div>
+          <div role="cell">
+            <button type="button" draggable="true" data-color="white" data-piece="bishop">
+              <img src="bishop_white.svg" alt="White Bishop" draggable="false" />
+            </button>
+          </div>
+          <div role="cell">
+            <button type="button" draggable="true" data-color="white" data-piece="queen">
+              <img src="queen_white.svg" alt="White Queen" draggable="false" />
+            </button>
+          </div>
+          <div role="cell">
+            <button type="button" draggable="true" data-color="white" data-piece="king">
+              <img src="king_white.svg" alt="White King" draggable="false" />
+            </button>
+          </div>
+          <div role="cell">
+            <button type="button" draggable="true" data-color="white" data-piece="bishop">
+              <img src="bishop_white.svg" alt="White Bishop" draggable="false" />
+            </button>
+          </div>
+          <div role="cell">
+            <button type="button" draggable="true" data-color="white" data-piece="knight">
+              <img src="knight_white.svg" alt="White Knight" draggable="false" />
+            </button>
+          </div>
+          <div role="cell">
+            <button type="button" draggable="true" data-color="white" data-piece="rook">
+              <img src="rook_white.svg" alt="White Rook" draggable="false" />
+            </button>
+          </div>
+        </div>
+      </div>
+      <aside data-bank>
+        <ul data-color="white">
+          
+        </ul>
+        <ul data-color="black">
+          
+        </ul>
+      </aside>
+      <footer role="status">
+        <span>white's turn (first move)</span>
+      </footer>
+    </main>
+  </body>
+</html>
